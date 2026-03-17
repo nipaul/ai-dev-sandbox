@@ -212,11 +212,16 @@ Click **Apply & Restart**.
 > # This lists all display adapters installed on your machine
 > Get-WmiObject Win32_VideoController | Select-Object Name, AdapterRAM
 > ```
-> Look for a line containing **NVIDIA**, **AMD/Radeon**, or **Intel Arc**. The `AdapterRAM` field shows your VRAM in bytes (divide by 1073741824 to get GB).
+> Look for a line containing **NVIDIA**, **AMD/Radeon**, or **Intel**. The `AdapterRAM` field shows your VRAM in bytes (divide by 1073741824 to get GB).
 >
-> - See **NVIDIA GeForce / RTX / Quadro**? → Follow **Option A**
-> - See **AMD Radeon / RX / Pro**? → Follow **Option B**
-> - See only **Intel UHD / Iris**? → Skip this section for now; run CPU-only and revisit when you upgrade hardware
+> | What you see | GPU type | Go to |
+> |---|---|---|
+> | NVIDIA GeForce / RTX / Quadro | NVIDIA discrete GPU | **Option A** |
+> | AMD Radeon / RX / Pro | AMD discrete GPU | **Option B** |
+> | Intel Arc A-series (e.g. A770, A380) | Intel discrete GPU | **Option C** |
+> | Intel UHD Graphics / Iris Xe | Intel integrated GPU | **Option C** (with limitations noted below) |
+>
+> > ⚠️ **Intel integrated GPU note (UHD / Iris Xe):** Integrated Intel GPUs share your system RAM rather than having their own dedicated video memory (VRAM). This means they can run AI workloads, but with lower performance and smaller model support compared to discrete GPUs. For LLM inference, models up to ~3B parameters work reasonably well. Larger models will be slow and may run out of shared memory. **Intel Arc discrete GPUs** (A-series) have dedicated VRAM and perform significantly better. All Intel GPU setup steps are the same regardless of type.
 
 ---
 
@@ -412,6 +417,8 @@ DirectML available
 #### Step 3 — Add AMD GPU Access to Your Compose File
 
 > 📝 **Edit your `docker-compose.yml` file**
+>
+> 📍 **Where is this file?** Your `docker-compose.yml` lives at `~/ai-sandbox/docker-compose.yml` inside your WSL2 terminal. The **full version of this file is built in Section 8**. If you haven't reached Section 8 yet, jump there first to create the file, then come back and add the AMD lines below into the relevant service block. To open it: `nano ~/ai-sandbox/docker-compose.yml` — save with `Ctrl+O` → Enter, exit with `Ctrl+X`.
 
 Unlike NVIDIA (which uses a `--gpus` flag), AMD GPU access is given to containers by mounting two specific paths. Add these to any service that needs GPU access:
 
@@ -431,20 +438,393 @@ services:
 
 > 💡 The `:ro` at the end of the volume mount means **read-only**. The container can read the WSL libraries but cannot modify them — this is a good security practice.
 
-After saving the file, bring the stack up:
+After saving the file, **validate it before starting:**
 
 > 📦 **Run this in your WSL2 Terminal:**
 
 ```bash
 cd ~/ai-sandbox
+
+# Validate first — checks for missing network/volume definitions and YAML errors
+docker compose config
+```
+
+**✅ Success:** Prints the resolved config with no errors.  
+**❌ Error `refers to undefined network`:** Your file is missing the top-level `networks:` definition block. Add this at the very bottom of the file:
+
+```yaml
+networks:
+  inference_net:
+    driver: bridge
+
+volumes:
+  ollama_models:
+    driver: local
+```
+
+Once validation passes:
+
+```bash
 docker compose up -d
 ```
 
 ---
 
+### Option C — Intel GPU (UHD / Iris Xe / Arc)
+
+**How Intel GPU passthrough works:** Intel GPUs on Windows 11 with WSL2 expose themselves through **DirectX 12** using the same `/dev/dxg` device path as AMD. For AI and ML workloads, Intel provides two main toolkits you can use inside containers:
+
+| Toolkit | Best for | Notes |
+|---------|----------|-------|
+| **DirectML** | General ML inference, PyTorch, ONNX | Works on all Intel GPUs including integrated |
+| **Intel OpenVINO** | Optimised LLM inference (Ollama, llama.cpp) | Intel's own inference engine — fastest option for Intel hardware |
+| **Intel Extension for PyTorch (IPEX)** | PyTorch training and inference | Adds Intel GPU support natively to PyTorch |
+
+> 💡 Unlike NVIDIA (which requires installing a toolkit inside WSL2), Intel GPU passthrough on WSL2 works through the Windows driver you already have installed — no separate Linux toolkit installation is needed to get started. The driver ships with Windows Update for most Intel integrated GPUs.
+
+---
+
+#### Step 1 — Confirm Intel Graphics Drivers Are Up to Date
+
+> 🖥️ **Do this in Windows**
+
+Intel integrated GPU drivers (UHD / Iris Xe) are usually kept up to date by Windows Update automatically. However, for AI workloads it's worth checking you have the latest version, as Intel has added OpenCL and DirectML improvements in recent driver releases.
+
+**Option A — Update via Windows Update (simplest):**
+
+1. Press **Windows key → Settings → Windows Update**
+2. Click **Check for updates**
+3. If you see **Intel Graphics** listed under optional or driver updates, install it
+4. Restart your machine when prompted
+
+**Option B — Update via Intel Driver & Support Assistant:**
+
+1. Go to [intel.com/content/www/us/en/support/intel-driver-support-assistant.html](https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html)
+2. Download and run the **Intel Driver & Support Assistant**
+3. It will scan your system and offer the latest graphics driver
+4. Install and restart
+
+After restarting, confirm your Intel GPU is visible:
+
+> 🪟 **Run this in PowerShell (Admin):**
+
+```powershell
+# Show Intel GPU name and driver version
+Get-WmiObject Win32_VideoController | Select-Object Name, DriverVersion | Where-Object { $_.Name -like "*Intel*" }
+```
+
+You should see your Intel GPU name (e.g., `Intel(R) UHD Graphics 770`) and a driver version number.
+
+---
+
+#### Step 2 — Verify DirectML Access Inside a Container
+
+> 📦 **Run this in your WSL2 Terminal (Ubuntu)**
+
+**What this does:** This test confirms your Intel GPU is accessible from inside a Docker container via the `/dev/dxg` DirectX device. It loads Intel's DirectX core library (`libdxcore.so`), which is the bridge between the Linux container and your Windows GPU driver.
+
+```bash
+docker run --rm \
+  --device /dev/dxg \
+  -v /usr/lib/wsl:/usr/lib/wsl \
+  python:3.11-slim \
+  python -c "import ctypes; ctypes.cdll.LoadLibrary('libdxcore.so'); print('Intel GPU via DirectML: available')"
+```
+
+**Breaking down this command:**
+
+| Part | What it means |
+|------|--------------|
+| `docker run --rm` | Start a temporary container and delete it when done |
+| `--device /dev/dxg` | Give the container access to the DirectX GPU device (works for Intel, AMD, and Arc) |
+| `-v /usr/lib/wsl:/usr/lib/wsl` | Mount the WSL GPU libraries so the container can find `libdxcore.so` |
+| `python:3.11-slim` | A lightweight Python container image |
+| `python -c "..."` | A short inline Python script to test the library loads correctly |
+
+**✅ Success looks like:**
+```
+Intel GPU via DirectML: available
+```
+
+**❌ If you see `OSError: libdxcore.so: cannot open shared object file`:**
+- Run `wsl --shutdown` in PowerShell (Admin)
+- Reopen your Ubuntu terminal
+- Re-run the command above
+- If it still fails, check that Windows Update has applied the latest Intel graphics driver (Step 1)
+
+---
+
+#### Step 3 — Install Intel OpenVINO 2025 for Optimised LLM Inference (Recommended)
+
+> 📦 **Run all commands in this step in your WSL2 Terminal (Ubuntu)**
+
+**What this does:** OpenVINO is Intel's own AI inference toolkit. It is optimised specifically for Intel hardware and gives significantly better performance for LLM inference than running on CPU alone — even on integrated GPUs. Ollama supports OpenVINO as a backend.
+
+> 📌 **These instructions follow the official Intel OpenVINO 2025 APT installation guide** at [docs.openvino.ai/2025](https://docs.openvino.ai/2025/get-started/install-openvino/install-openvino-apt.html). If any step below conflicts with what you see on that page, the official docs take precedence.
+
+---
+
+**Step 3a — Install prerequisite packages**
+
+Before adding Intel's repository, make sure the tools needed to manage trusted keys are installed:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates gnupg wget
+```
+
+> 💡 `ca-certificates` lets Ubuntu verify secure (HTTPS) connections. `gnupg` handles the cryptographic signing key. `wget` is the download tool. These may already be installed — running this command is harmless if they are.
+
+---
+
+**Step 3b — Add Intel's trusted GPG signing key**
+
+This tells Ubuntu to trust packages that come from Intel's repository:
+
+```bash
+wget -qO - https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+  | sudo gpg --dearmor -o /usr/share/keyrings/intel-sw-products.gpg
+```
+
+> 💡 `wget -qO -` downloads a file silently and prints it to the terminal output stream. The `|` (pipe) passes it directly into `gpg --dearmor`, which converts the key into a binary format Ubuntu can use. It's saved to `/usr/share/keyrings/` — the standard location for trusted repository keys on Ubuntu.
+
+---
+
+**Step 3c — Register Intel's OpenVINO 2025 APT repository**
+
+This adds Intel's package server to Ubuntu's list of places to look for software:
+
+```bash
+# For Ubuntu 22.04 (which is what the guide uses)
+echo "deb https://apt.repos.intel.com/openvino ubuntu22 main" \
+  | sudo tee /etc/apt/sources.list.d/intel-openvino.list
+```
+
+> 💡 The `echo ... | sudo tee` pattern writes text into a system file that requires administrator access. The file `/etc/apt/sources.list.d/intel-openvino.list` tells Ubuntu's package manager (`apt`) about a new source of software — in this case, Intel's OpenVINO repository.
+>
+> ⚠️ **Note on the 2025 URL format:** The 2025 repository URL no longer includes the year in the path (it is `apt.repos.intel.com/openvino`, not `apt.repos.intel.com/openvino/2024`). If you have a leftover `intel-openvino-2024.list` file from a previous install, remove it first:
+> ```bash
+> sudo rm -f /etc/apt/sources.list.d/intel-openvino-2024.list
+> ```
+
+---
+
+**Step 3d — Refresh the package list and verify the repository**
+
+```bash
+# Refresh apt's knowledge of available packages
+sudo apt-get update
+```
+
+Then confirm the OpenVINO packages are visible from Intel's repository:
+
+```bash
+# List all available OpenVINO packages — you should see a long list
+apt-cache search openvino
+```
+
+> 💡 `apt-cache search` queries the local package index (just updated above) and shows everything matching the search term. If you see a list of `openvino-*` packages, the repository was added successfully. If you see nothing, recheck Step 3c.
+
+---
+
+**Step 3e — Install the OpenVINO 2025 C++ runtime via APT**
+
+Install the OpenVINO C++ runtime libraries from Intel's repository:
+
+```bash
+sudo apt-get install -y openvino
+```
+
+> 💡 The `apt` package installs OpenVINO's **C++ runtime libraries only** — the core inference engine that other tools (like Ollama) link against at the system level. It does **not** include the Python bindings. You will add those separately in Step 3f.
+>
+> You can also install a specific version (e.g., `openvino=2025.1.0`) if you need to pin to an exact release. Use `apt-cache show openvino` to see which version will be installed before committing.
+
+---
+
+**Step 3f — Install the OpenVINO Python bindings via pip**
+
+> ⚠️ **Known gap in APT install:** The `apt` package does not ship the compiled Python module `openvino._pyopenvino`. Running `from openvino import Core` after the APT-only install will fail with:
+> ```
+> ModuleNotFoundError: No module named 'openvino._pyopenvino'
+> ```
+> This is expected. The Python bindings must be installed separately via `pip`.
+
+First, make sure `pip` is available:
+
+```bash
+sudo apt-get install -y python3-pip
+```
+
+Then install the OpenVINO Python package:
+
+```bash
+pip3 install openvino --break-system-packages
+```
+
+> 💡 `--break-system-packages` is required on Ubuntu 22.04+ when installing pip packages outside of a virtual environment. It tells pip you are intentionally installing into the system Python. This is fine for a personal WSL2 sandbox. If you want a cleaner setup, use the virtual environment option below instead.
+
+**Optional — Virtual environment approach (recommended for keeping things tidy):**
+
+```bash
+# Create a virtual environment inside your sandbox folder
+python3 -m venv ~/ai-sandbox/.venv
+
+# Activate it — your prompt will change to show (.venv)
+source ~/ai-sandbox/.venv/bin/activate
+
+# Install OpenVINO inside the venv — no --break-system-packages needed
+pip install openvino
+
+# To deactivate the venv later, just run:
+# deactivate
+```
+
+> 💡 When your terminal shows `(.venv)` at the start of the prompt, the virtual environment is active and any `pip install` commands install packages inside it, not system-wide. This keeps your WSL2 environment clean and makes it easy to manage different versions of packages per project.
+
+---
+
+**Step 3g — Verify OpenVINO installed correctly and can see your GPU**
+
+```bash
+python3 -c "from openvino import Core; ie = Core(); print('Available devices:', ie.available_devices)"
+```
+
+> 💡 **2025 API:** The correct import is `from openvino import Core` — not `from openvino.runtime import Core`, which was the older 2024-era style. The old import still works as a compatibility alias but will show a deprecation warning. Use the new form going forward.
+
+**✅ Success looks like:**
+```
+Available devices: ['CPU', 'GPU']
+```
+
+Seeing `GPU` confirms OpenVINO can see your Intel GPU and will use it for inference.
+
+> 💡 If only `CPU` appears, your Intel GPU may not yet be configured for compute workloads. Install the Intel GPU compute runtime and add your user to the required groups:
+> ```bash
+> sudo apt-get install -y intel-opencl-icd intel-level-zero-gpu level-zero
+> sudo usermod -aG render,video $USER
+> ```
+> Then **log out and back in** to WSL2 (`wsl --shutdown` in PowerShell, then reopen Ubuntu) and re-run the verification command.
+
+---
+
+#### Step 4 — Add Intel GPU Access to Your Compose File
+
+> 📝 **Edit your `docker-compose.yml` file**
+>
+> 📍 **Where is this file?** Your `docker-compose.yml` lives at `~/ai-sandbox/docker-compose.yml` inside your WSL2 terminal. The **full version of this file is built in Section 8** of this guide. If you haven't reached Section 8 yet, you have two choices:
+>
+> - **Recommended:** Jump to Section 8 first, create the full Compose file, then come back here and add the Intel GPU lines shown below into the `ollama` service block.
+> - **Alternative:** Create a minimal Compose file now to test GPU access, then expand it with the full content from Section 8 later.
+>
+> To open the file for editing:
+>
+> ```bash
+> # Navigate to your sandbox folder
+> cd ~/ai-sandbox
+>
+> # Open in nano — a simple built-in terminal text editor
+> # If the file doesn't exist yet, nano will create a blank one
+> nano docker-compose.yml
+> ```
+>
+> Save in nano with `Ctrl+O` → Enter, then exit with `Ctrl+X`.
+
+Intel GPU access in Docker uses the same `/dev/dxg` device mount as AMD. Add the following lines to any service that should use your Intel GPU.
+
+> ⚠️ **Important — every network referenced in a service must also be defined.** A common error at this stage is `service "ollama" refers to undefined network inference_net`. This happens when the `networks:` block at the bottom of the file is missing or incomplete. The example below shows the **complete, self-contained file** — make sure yours includes the `networks:` and `volumes:` definition blocks at the bottom, not just the service lines.
+
+```yaml
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - /usr/lib/wsl:/usr/lib/wsl:ro   # WSL GPU libraries (read-only)
+      - ollama_models:/root/.ollama    # Persists downloaded models across restarts
+    devices:
+      - /dev/dxg:/dev/dxg              # DirectX GPU device — Intel UHD, Iris Xe, and Arc
+    shm_size: '4gb'
+    environment:
+      - OLLAMA_INTEL_GPU=1             # Tells Ollama to use Intel GPU backend
+    networks:
+      - inference_net                  # ← references the network defined below
+
+# ── Every network referenced above MUST be defined here ──
+networks:
+  inference_net:
+    driver: bridge
+
+# ── Every named volume referenced above MUST be defined here ──
+volumes:
+  ollama_models:
+    driver: local
+```
+
+> 💡 **Why are `networks:` and `volumes:` needed at the bottom?** Docker Compose has two distinct concepts: *referencing* a network/volume inside a service (the `networks:` key under the service) and *defining* that network/volume so Docker knows to create it (the top-level `networks:` and `volumes:` blocks). Both are required. Omitting the definition block while keeping the reference is what causes the `refers to undefined network` error.
+
+> 💡 `OLLAMA_INTEL_GPU=1` is an environment variable that switches Ollama's backend to use Intel GPU acceleration. Environment variables set in Compose are passed into the container at startup — they're like settings you hand to the app when you launch it.
+
+After saving the file, **validate it before starting** to catch any errors early:
+
+> 📦 **Run this in your WSL2 Terminal:**
+
+```bash
+cd ~/ai-sandbox
+
+# Validate the Compose file — prints the resolved config if correct, or shows the error line
+docker compose config
+```
+
+**✅ Success:** Prints the fully resolved Compose configuration with no errors.  
+**❌ Still errors:** The output points to the exact line with the problem — fix it, then re-run `docker compose config` before proceeding.
+
+Once validation passes, start the stack:
+
+```bash
+# If the stack is already running, bring it down first
+docker compose down
+
+# Start it with the updated config
+docker compose up -d
+```
+
+---
+
+#### Step 5 — Run a Quick Inference Test on Intel GPU
+
+> 📦 **Run this in your WSL2 Terminal (Ubuntu)**
+
+**What this does:** Pulls a small model and runs one inference request through Ollama. This confirms the full pipeline is working — Docker → Intel GPU passthrough → Ollama → LLM response.
+
+```bash
+# Pull a small 1B model (fast to download, works well on integrated GPU)
+docker exec -it ollama ollama pull llama3.2:1b
+
+# Run a test prompt
+docker exec -it ollama ollama run llama3.2:1b "Explain Docker in one sentence."
+```
+
+> 💡 `docker exec -it ollama` means "run a command inside the already-running container named `ollama`". `-it` means interactive — you'll see the output in real time.
+
+**✅ Success:** You see a response generated by the model within a few seconds.
+
+> ⚠️ **Performance expectations for Intel integrated GPU (UHD / Iris Xe):**
+> - `llama3.2:1b` (1B parameters) — fast, ~5–15 tokens/sec
+> - `llama3.2:3b` (3B parameters) — moderate, ~2–6 tokens/sec
+> - `mistral:7b` (7B parameters) — slow, ~0.5–2 tokens/sec, may run out of shared memory
+>
+> Intel Arc discrete GPUs (A380, A770) will be 3–5× faster than integrated graphics at the same model size.
+
+---
+
 ### ✅ GPU Passthrough Checklist
 
-Before moving on to Section 5, confirm the following:
+Before moving on to Section 5, confirm the following for your GPU type:
 
 **For NVIDIA users:**
 - [ ] NVIDIA driver version 525+ installed on Windows and machine restarted
@@ -458,8 +838,25 @@ Before moving on to Section 5, confirm the following:
 - [ ] DirectML verification test printed `DirectML available`
 - [ ] `devices` and `volumes` entries added to relevant services in `docker-compose.yml`
 
-**For both:**
-- [ ] You know which flag or config to add when you want a container to use the GPU (`--gpus all` for NVIDIA, `--device /dev/dxg` for AMD)
+**For Intel users:**
+- [ ] Intel graphics drivers confirmed up to date via Windows Update or Intel DSA
+- [ ] DirectML container test printed `Intel GPU via DirectML: available`
+- [ ] OpenVINO 2025 prerequisites installed (`ca-certificates`, `gnupg`, `wget`, `python3-pip`)
+- [ ] Intel GPG signing key added to `/usr/share/keyrings/intel-sw-products.gpg`
+- [ ] Intel OpenVINO 2025 APT repository registered at `apt.repos.intel.com/openvino` (no year in path)
+- [ ] Any old `intel-openvino-2024.list` file removed before adding the new repo
+- [ ] `openvino` C++ runtime installed via `sudo apt-get install -y openvino`
+- [ ] OpenVINO Python bindings installed via `pip3 install openvino --break-system-packages` (or inside a venv)
+- [ ] Verification with `from openvino import Core` (2025 API) shows `CPU` or `GPU` in available devices
+- [ ] If `GPU` missing: `intel-opencl-icd`, `level-zero` installed and user added to `render,video` groups
+- [ ] `devices`, `volumes`, and `OLLAMA_INTEL_GPU=1` added to Compose services
+- [ ] Test inference with `llama3.2:1b` returned a response
+
+**For all GPU types:**
+- [ ] You know which device mount or flag gives a container GPU access:
+  - NVIDIA → `--gpus all` flag or `deploy.resources.reservations.devices` in Compose
+  - AMD → `--device /dev/dxg` + `-v /usr/lib/wsl:/usr/lib/wsl`
+  - Intel → `--device /dev/dxg` + `-v /usr/lib/wsl:/usr/lib/wsl` + `OLLAMA_INTEL_GPU=1`
 
 ---
 
@@ -530,20 +927,37 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
 
 ### Tuning 2 — Verify Image Storage Driver
 
-**What this does:** Docker can store images in different ways. The `containerd` image store (which you enabled in Section 3's `daemon.json`) is faster and more efficient. This step just confirms it's active.
+**What this does:** Docker can store images in different ways internally. The containerd image store (which you enabled in Section 3's `daemon.json`) uses an OverlayFS-based driver — the fastest and most efficient option. This step confirms it is active.
 
-> 🪟 **Run this in PowerShell (Admin)** — or in your WSL2 terminal, either works
+> 📦 **Run this in your WSL2 Terminal** (you can also run it in PowerShell — either works)
 
-```powershell
+```bash
 docker system info | grep "Storage Driver"
 ```
 
-**Expected output:**
+**Expected output — both of these are correct and mean the same thing:**
+
 ```
 Storage Driver: overlay2
 ```
+```
+Storage Driver: overlayfs
+```
 
-> 💡 You don't need to change anything here — this is just a health check. If you see `overlay2`, you're good. If you see `vfs`, something went wrong in the daemon.json setup in Section 3 and you should revisit that step.
+> 💡 **Why two possible values?** Both `overlay2` and `overlayfs` refer to the same underlying Linux kernel technology — OverlayFS — which is how Docker efficiently layers images on top of each other without duplicating files. The difference in label is purely environmental:
+>
+> - `overlay2` — what Docker reports on a **native Linux** host (e.g., a Linux server or VM)
+> - `overlayfs` — what Docker reports inside **WSL2 with the containerd image store enabled** (your setup)
+>
+> `overlayfs` on WSL2 is not a fallback or degraded mode. It is the correct, optimal output for your configuration. No action is needed.
+
+**The only output that indicates a real problem:**
+
+```
+Storage Driver: vfs
+```
+
+> ⚠️ `vfs` (Virtual File System) is a slow generic fallback that copies entire files rather than using efficient layering. If you see this, the containerd image store setting from Section 3's `daemon.json` may not have been applied. Go back to **Section 3 → Docker Engine (Edit daemon.json)**, confirm `"containerd": true` is present, click **Apply & Restart**, and re-run this check.
 
 ---
 
@@ -679,7 +1093,7 @@ Before moving on, confirm each item is done:
 
 - [ ] `DOCKER_BUILDKIT=1` added to `~/.bashrc` (WSL2 Terminal)
 - [ ] Cache mount (`--mount=type=cache`) added to Dockerfiles where `pip install` is used
-- [ ] Storage Driver confirmed as `overlay2`
+- [ ] Storage Driver confirmed as `overlay2` or `overlayfs` — both are correct on WSL2 (only `vfs` is a problem)
 - [ ] `shm_size: '4gb'` added to ML training services in `docker-compose.yml`
 - [ ] `~/ai-sandbox/` directory structure created on the Linux filesystem
 - [ ] Model and dataset files stored under `~/ai-sandbox/`, not under `/mnt/c/`
@@ -688,35 +1102,165 @@ Before moving on, confirm each item is done:
 
 ## 6. Security Hardening
 
+> 🧭 **Before you start — two types of config files are edited in this section**
+>
+> | File | What it is | Where it lives | How to open it |
+> |------|-----------|---------------|----------------|
+> | **Dockerfile** | Instructions for building a custom container image | `~/ai-sandbox/<service>/Dockerfile` | `nano ~/ai-sandbox/api/Dockerfile` |
+> | **docker-compose.yml** | Defines and wires together all your running services | `~/ai-sandbox/docker-compose.yml` | `nano ~/ai-sandbox/docker-compose.yml` |
+>
+> Each section below is clearly labelled with which file it belongs in. Read the explainer below before proceeding if either file type is new to you.
+
+---
+
+### 📄 What Is a Dockerfile? (Read This First)
+
+A **Dockerfile** is a plain text file — named exactly `Dockerfile` with no file extension — that contains step-by-step instructions Docker follows to build a container image. Think of it as a recipe: Docker reads it from top to bottom and assembles a custom image layer by layer.
+
+**Not every service needs a Dockerfile.** Services that use a pre-built public image (like `image: ollama/ollama:latest`) do not need one — the Dockerfile is already baked into the image by its maintainers. You only write a Dockerfile for services you are building yourself, such as your API backend or custom ML training container.
+
+**Where Dockerfiles live:** Each custom service gets its own subfolder inside `~/ai-sandbox/`, and its Dockerfile lives inside that folder:
+
+```
+~/ai-sandbox/
+├── docker-compose.yml       ← wires all services together
+├── .env                     ← your secret keys (never commit to git)
+├── api/
+│   ├── Dockerfile           ← build instructions for your API service
+│   ├── main.py              ← your FastAPI application code
+│   └── requirements.txt     ← Python packages to install
+└── trainer/
+    ├── Dockerfile           ← build instructions for your ML trainer
+    └── requirements.txt
+```
+
+The `docker-compose.yml` file points to each Dockerfile via a `build:` block:
+
+```yaml
+services:
+  api:
+    build:
+      context: ./api       # ← look in the api/ subfolder
+      dockerfile: Dockerfile
+```
+
+Services without a `build:` block (like Ollama) use a ready-made image and need no Dockerfile.
+
+**How to create a Dockerfile for the first time:**
+
+> 📦 **Run in your WSL2 Terminal**
+
+```bash
+# Create the service subfolder (example: for your API service)
+mkdir -p ~/ai-sandbox/api
+
+# Create and open a blank Dockerfile
+nano ~/ai-sandbox/api/Dockerfile
+```
+
+Paste your Dockerfile content, save with `Ctrl+O` → Enter, exit with `Ctrl+X`. Confirm it was created:
+
+```bash
+ls ~/ai-sandbox/api/
+# Should show: Dockerfile
+```
+
+---
+
 ### Principle of Least Privilege
 
-Never run containers as root when avoidable:
+**What this means:** By default, processes inside a Docker container run as the `root` user — the equivalent of a Windows Administrator account with no restrictions. If anything goes wrong (a bug, a compromised package, a malicious model), root access inside the container makes the blast radius much larger. Creating a dedicated non-root user limits what any rogue process can do.
+
+> 📝 **Add these lines to your custom Dockerfile** (e.g., `~/ai-sandbox/api/Dockerfile`)
+>
+> 💡 This applies to Dockerfiles you write yourself for custom services — not to pre-built images like Ollama or Jupyter, which manage their own users internally.
+
+Here is a complete example Dockerfile showing where the non-root user lines go in context:
 
 ```dockerfile
-# In your Dockerfile
+# ── Start from an official base image ────────────────
+FROM python:3.11-slim
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install dependencies BEFORE switching users
+# (installing packages requires root — do it here, not after USER)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Principle of Least Privilege ─────────────────────
+# Create a non-root group named 'aiuser'
+# -r means "system group" (no home directory, no login shell)
 RUN groupadd -r aiuser && useradd -r -g aiuser aiuser
+
+# From this point on, all commands run as 'aiuser', not root
 USER aiuser
+# ─────────────────────────────────────────────────────
+
+# Copy app code with correct ownership (aiuser can read/write it)
+COPY --chown=aiuser:aiuser . .
+
+EXPOSE 8000
+CMD ["python", "app.py"]
+```
+
+> 💡 Notice that `pip install` happens **before** the `USER aiuser` line. Package installation requires root access. Once you switch to a non-root user with `USER`, you can no longer install system packages — so always do system-level setup first, then drop privileges.
+
+After editing your Dockerfile, rebuild the affected service for the change to take effect:
+
+> 📦 **Run in your WSL2 Terminal**
+
+```bash
+cd ~/ai-sandbox
+
+# Rebuild just the service whose Dockerfile you edited (e.g., api)
+docker compose build api
+
+# Then restart it
+docker compose up -d api
 ```
 
 ### Read-Only Filesystems
 
-Mount model weights as read-only:
+**What this means:** When you mount a folder into a container, Docker gives it read-write access by default — the container can modify or delete files. Adding `:ro` (read-only) to a volume mount means the container can read the files but cannot change them. For model weights and datasets this is both safer and a good guard against accidental corruption.
+
+> 📝 **Add `:ro` to volume mounts in `docker-compose.yml`** (`~/ai-sandbox/docker-compose.yml`)
 
 ```yaml
 volumes:
-  - ~/ai-sandbox/models:/app/models:ro
+  - ~/ai-sandbox/models:/app/models:ro      # ✅ Container can read models, not modify them
+  - ~/ai-sandbox/datasets:/app/data:ro      # ✅ Datasets are read-only
+  - ~/ai-sandbox/outputs:/app/outputs       # No :ro — container needs to write results here
 ```
+
+> 💡 `:ro` stands for **read-only**. Without it, `:rw` (read-write) is assumed. Only leave write access on folders the container genuinely needs to write to — like your `outputs/` folder where training results are saved.
+
+---
 
 ### Disable Privilege Escalation
 
+**What this means:** Even when a container runs as a non-root user, a malicious process could potentially use Linux capabilities to gain elevated privileges. These two Compose settings close that door: `no-new-privileges` prevents any process from gaining more permissions than it started with, and `cap_drop: ALL` strips every Linux capability from the container by default.
+
+> 📝 **Add to any service in `docker-compose.yml`** (`~/ai-sandbox/docker-compose.yml`)
+
 ```yaml
-security_opt:
-  - no-new-privileges:true
-cap_drop:
-  - ALL
-cap_add:
-  - NET_BIND_SERVICE   # Only add back what you need
+services:
+  api:
+    image: python:3.11-slim
+    security_opt:
+      - no-new-privileges:true   # No process can elevate beyond its starting permissions
+    cap_drop:
+      - ALL                      # Strip all Linux capabilities by default
+    cap_add:
+      - NET_BIND_SERVICE         # Add back only what is genuinely needed
+                                 # NET_BIND_SERVICE allows binding to ports below 1024
+                                 # Most services don't need even this — omit if unsure
 ```
+
+> 💡 Think of `cap_drop: ALL` as taking away every key on a keyring, then `cap_add` as handing back only the one key the service actually needs. For most AI experimentation services running on ports 8000+ you can omit `cap_add` entirely.
+
+---
 
 ### Secrets Management — Do Not Use Environment Variables for Secrets
 
@@ -757,39 +1301,64 @@ secrets/
 
 ### Network Isolation
 
-By default, all containers on the same Compose network can communicate. Isolate unrelated services:
+**What this means:** By default, every container on the same Compose network can talk to every other container on that network. For your sandbox this is fine between services that genuinely need each other (e.g., API talking to Ollama). But containers that have no reason to talk to each other — or that should have no outbound internet access — can be isolated by defining separate networks or using `internal: true`.
+
+> 📝 **Add to the `networks:` block in `docker-compose.yml`** (`~/ai-sandbox/docker-compose.yml`)
 
 ```yaml
 networks:
   inference_net:
     driver: bridge
-    internal: true      # No external internet access
+    internal: true    # Containers on this network have NO outbound internet access
+                      # Good for: model inference services that don't need to call external APIs
   api_net:
-    driver: bridge
+    driver: bridge    # Normal network — containers can reach the internet if needed
+                      # Good for: services that call external APIs (HuggingFace, Anthropic, etc.)
 ```
+
+> 💡 `internal: true` is a useful safety net for inference containers — an LLM running locally has no business making outbound HTTP calls. If something tries to phone home, `internal: true` blocks it at the network level.
+
+---
 
 ### Image Trust & Scanning
 
+**What this means:** Anyone can publish a Docker image. Before running an unfamiliar image, scan it for known security vulnerabilities. Docker Desktop includes `docker scout` for this purpose.
+
+> 📦 **Run in your WSL2 Terminal**
+
 ```bash
-# Scan images for vulnerabilities before running
+# Scan an image for known CVEs (vulnerabilities) before running it
 docker scout cves ollama/ollama:latest
 
-# Only use official or verified images
-docker pull python:3.11-slim          # ✅ Official
-docker pull randomuser/pytorch:latest  # ⚠️ Unverified — avoid
+# Always prefer official or verified publisher images
+docker pull python:3.11-slim          # ✅ Official Python image — maintained by Docker
+docker pull randomuser/pytorch:latest  # ⚠️ Unknown publisher — avoid unless you trust the source
 ```
+
+> 💡 Official images (no `/` prefix, like `python:3.11-slim`) are maintained by Docker or the software's core team. Verified publisher images (a blue shield badge on Docker Hub) are from trusted companies. Everything else should be treated with caution.
+
+---
 
 ### Limit Container Resources (Prevents Runaway Processes)
 
+**What this means:** Without limits, a single runaway container — a training job that gets stuck in an infinite loop, or an inference request that spirals — can consume all your RAM and bring your whole machine to a halt. Setting resource limits in Compose caps how much CPU and memory each service can use.
+
+> 📝 **Add to any service in `docker-compose.yml`** (`~/ai-sandbox/docker-compose.yml`)
+
 ```yaml
-deploy:
-  resources:
-    limits:
-      cpus: '4.0'
-      memory: 16G
-    reservations:
-      memory: 4G
+services:
+  trainer:
+    image: pytorch/pytorch:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'      # Maximum CPU cores this container can use (not a reservation)
+          memory: 16G      # Hard memory ceiling — container is killed if it exceeds this
+        reservations:
+          memory: 4G       # Minimum memory guaranteed to this container at startup
 ```
+
+> 💡 `limits` is a hard ceiling — Docker will kill the container if it exceeds the memory limit. `reservations` is a soft floor — Docker will try to ensure this much is available but won't kill other containers to free it. Set `limits.memory` conservatively at first (e.g., 16G for training) and raise it only if jobs are being killed unexpectedly. You can monitor actual usage with `docker stats` to calibrate these values.
 
 ---
 
