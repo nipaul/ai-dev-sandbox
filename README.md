@@ -101,7 +101,7 @@ Access points once running:
 
 The full setup guide covers every step from scratch, written for both beginners and experienced developers:
 
-- **[docker-ai-sandbox-guide.md](./docker-ai-sandbox-guide.md)** — 12-section guide covering WSL2 setup, Docker Desktop configuration, GPU passthrough (NVIDIA / AMD / Intel), performance tuning, security hardening, all workload Dockerfiles, Compose stack, networking, storage, and monitoring.
+- **[docker-ai-sandbox-guide.md](./docs/docker-ai-sandbox-guide.md)** — 12-section guide covering WSL2 setup, Docker Desktop configuration, GPU passthrough (NVIDIA / AMD / Intel), performance tuning, security hardening, all workload Dockerfiles, Compose stack, networking, storage, and monitoring.
 
 Key sections:
 - **Section 4** — GPU passthrough for NVIDIA, AMD, and Intel (including OpenVINO 2025 install)
