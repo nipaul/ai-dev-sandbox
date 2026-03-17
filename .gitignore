@@ -1,0 +1,38 @@
+# Generic
+.DS_Store
+Thumbs.db
+*.log
+
+# Environment
+.env
+.env.local
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDEs
+.vscode/
+.idea/
+
+# Python / build
+build/
+dist/
+*.egg-info/
+
+# .NET
+bin/
+obj/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# OS
+desktop.ini
