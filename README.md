@@ -44,8 +44,7 @@ local-ai-sandbox/
 ├── docker-compose.yml               ← full sandbox stack
 ├── .env.example                     ← environment variable template
 ├── docker-ai-sandbox-guide.md       ← complete setup and configuration guide
-├── docker-local-ai-article.md       ← article: local AI as an alpha testing platform
-├── api/
+├── apis/
 │   ├── Dockerfile                   ← FastAPI backend
 │   ├── main.py
 │   └── requirements.txt
