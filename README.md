@@ -2,6 +2,7 @@
 
 A fully documented Docker-based AI experimentation sandbox for Windows 11 — designed as a local-first alpha and pre-production testing platform for AI features before promoting to cloud-hosted services.
 
+![Repo Banner](./docs/assets/ai_dev_sandbox_banner.svg)
 ---
 
 ## What This Is

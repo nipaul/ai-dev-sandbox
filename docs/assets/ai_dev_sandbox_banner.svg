@@ -1,0 +1,75 @@
+<svg width="100%" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<style>
+.bt{font-family:'Courier New',Courier,monospace;font-size:26px;font-weight:600;fill:#26215C}
+.bs{font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:400;fill:#5F5E5A}
+.bc{font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:400;fill:#888780}
+.pt{font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:500}
+.conn{stroke:#B4B2A9;stroke-width:0.6;opacity:0.45}
+.sep{stroke:#D3D1C7;stroke-width:0.5}
+.rule{stroke:#D3D1C7;stroke-width:0.5}
+.n-purple{fill:#7F77DD;stroke:#534AB7;stroke-width:0.5}
+.n-teal{fill:#1D9E75;stroke:#0F6E56;stroke-width:0.5}
+.n-amber{fill:#EF9F27;stroke:#BA7517;stroke-width:0.5}
+.p-teal{fill:#9FE1CB;stroke:#0F6E56;stroke-width:0.5}
+.p-purple{fill:#CECBF6;stroke:#534AB7;stroke-width:0.5}
+.p-amber{fill:#FAC775;stroke:#BA7517;stroke-width:0.5}
+.t-teal{fill:#085041}
+.t-purple{fill:#3C3489}
+.t-amber{fill:#633806}
+@media(prefers-color-scheme:dark){
+  .bt{fill:#CECBF6}
+  .bs{fill:#B4B2A9}
+  .bc{fill:#5F5E5A}
+  .conn{stroke:#5F5E5A;opacity:0.35}
+  .sep,.rule{stroke:#444441}
+  .p-teal{fill:#085041;stroke:#1D9E75}
+  .p-purple{fill:#3C3489;stroke:#7F77DD}
+  .p-amber{fill:#633806;stroke:#EF9F27}
+  .t-teal{fill:#9FE1CB}
+  .t-purple{fill:#CECBF6}
+  .t-amber{fill:#FAC775}
+}
+</style>
+<line class="conn" x1="52" y1="45" x2="114" y2="38"/>
+<line class="conn" x1="52" y1="45" x2="114" y2="80"/>
+<line class="conn" x1="52" y1="45" x2="114" y2="122"/>
+<line class="conn" x1="52" y1="45" x2="114" y2="164"/>
+<line class="conn" x1="52" y1="100" x2="114" y2="38"/>
+<line class="conn" x1="52" y1="100" x2="114" y2="80"/>
+<line class="conn" x1="52" y1="100" x2="114" y2="122"/>
+<line class="conn" x1="52" y1="100" x2="114" y2="164"/>
+<line class="conn" x1="52" y1="155" x2="114" y2="38"/>
+<line class="conn" x1="52" y1="155" x2="114" y2="80"/>
+<line class="conn" x1="52" y1="155" x2="114" y2="122"/>
+<line class="conn" x1="52" y1="155" x2="114" y2="164"/>
+<line class="conn" x1="114" y1="38" x2="176" y2="80"/>
+<line class="conn" x1="114" y1="38" x2="176" y2="120"/>
+<line class="conn" x1="114" y1="80" x2="176" y2="80"/>
+<line class="conn" x1="114" y1="80" x2="176" y2="120"/>
+<line class="conn" x1="114" y1="122" x2="176" y2="80"/>
+<line class="conn" x1="114" y1="122" x2="176" y2="120"/>
+<line class="conn" x1="114" y1="164" x2="176" y2="80"/>
+<line class="conn" x1="114" y1="164" x2="176" y2="120"/>
+<line x1="52" y1="100" x2="114" y2="80" stroke="#EF9F27" stroke-width="2.5" stroke-linecap="round"/>
+<line x1="114" y1="80" x2="176" y2="80" stroke="#EF9F27" stroke-width="2.5" stroke-linecap="round"/>
+<circle class="n-purple" cx="52" cy="45" r="9"/>
+<circle class="n-purple" cx="52" cy="100" r="9"/>
+<circle class="n-purple" cx="52" cy="155" r="9"/>
+<circle class="n-teal" cx="114" cy="38" r="9"/>
+<circle class="n-teal" cx="114" cy="80" r="9"/>
+<circle class="n-teal" cx="114" cy="122" r="9"/>
+<circle class="n-teal" cx="114" cy="164" r="9"/>
+<circle class="n-amber" cx="176" cy="80" r="11"/>
+<circle class="n-amber" cx="176" cy="120" r="11"/>
+<line class="sep" x1="210" y1="22" x2="210" y2="178"/>
+<text class="bt" x="230" y="70">local-ai-sandbox</text>
+<text class="bs" x="230" y="95">Local AI · Docker · WSL2 · Windows 11</text>
+<text class="bc" x="230" y="114">LLM inference · ML training · API services · Jupyter · IIS</text>
+<line class="rule" x1="230" y1="127" x2="636" y2="127"/>
+<rect class="p-teal" x="230" y="137" width="110" height="22" rx="11"/>
+<text class="pt t-teal" x="285" y="148" text-anchor="middle" dominant-baseline="central">Docker · WSL2</text>
+<rect class="p-purple" x="348" y="137" width="160" height="22" rx="11"/>
+<text class="pt t-purple" x="428" y="148" text-anchor="middle" dominant-baseline="central">NVIDIA · AMD · Intel</text>
+<rect class="p-amber" x="516" y="137" width="120" height="22" rx="11"/>
+<text class="pt t-amber" x="576" y="148" text-anchor="middle" dominant-baseline="central">LLM inference</text>
+</svg>
